@@ -4,6 +4,7 @@ const playwright = require('playwright'),
 
 const { clearTerminal } = require('./helpers/cli')
 const { LOGO } = require('./constants')
+const { saveJSONToCSV } = require('./helpers')
 
 prompt.message = '' // 앞에 오는 메시지 제거
 
@@ -35,11 +36,9 @@ const bootstrap = async () => {
       }
     })
 
-    page = await context.newPage()
-
     // 로그인
     // TODO: 실패 시 처리
-    console.log(chalk.green('[로그인 정보를 입력하세요]\n'))
+    console.log(chalk.green('로그인 정보를 입력하세요 ...\n'))
 
     prompt.start()
     const input = await prompt.get([
@@ -54,59 +53,85 @@ const bootstrap = async () => {
         }
       }
     ])
-    await auth(page, { ...input })
+    await auth(context, { ...input })
     clearTerminal()
 
+    const companyList = []
+
     let currentPage = 1
+    const MAX_CONCURRENT_REQUESTS = 5 // Set the maximum number of concurrent requests
+
     while (true) {
       try {
-        const { data, hasNext } = await getCompanyList(page, currentPage)
-        if (!hasNext) {
+        const { data, hasNext } = await getCompanyList(context, currentPage)
+
+        if (!hasNext || data.length === 0) {
           break
         }
 
         clearTerminal()
-        console.log(chalk.green(`${currentPage} 페이지 작업 중 ...`))
+        console.log(`\n\n⌙ ${currentPage} 페이지에서 ${data.length}개의 회사 정보를 수집 중 ...`)
 
-        if (data.length === 0) {
-          console.log(chalk.yellow(`${currentPage} 페이지에는 회사 정보가 없습니다.`))
-          break
-        }
-
-        for (const searchedCompany of data) {
+        const detailPromises = data.map(async (searchedCompany) => {
           try {
-            const detail = await getCompanyDetail(page, searchedCompany.link)
+            const detail = await getCompanyDetail(context, searchedCompany.link)
+
             console.log(chalk.blue(`\n⌙ 회사명: ${detail.name}`))
             console.log(chalk.blue(`  ⌙ 이메일: ${detail.email}`))
             console.log(chalk.blue(`  ⌙ 연락처: ${detail.phone}`))
+
+            return detail
           } catch (error) {
-            console.error(chalk.red(`Error getting company detail: ${error?.message}`))
+            // Handle error
           }
-        }
+        })
+
+        // Process detail pages in parallel with a limited concurrency
+        const companyDetails = await Promise.map(detailPromises, async (promise) => await promise, {
+          concurrency: MAX_CONCURRENT_REQUESTS
+        })
+
+        // Add company details to the result list
+        companyList.push(...companyDetails)
       } catch (error) {
-        console.error(chalk.red(`Error getting company list: ${error?.message}`))
+        // Handle error
       }
 
       currentPage++
     }
+
+    clearTerminal()
+    console.log(
+      chalk.green(
+        `\n\n✅ 작업이 완료되었습니다. 총 ${page}개의 페이지에서 ${companyList.length}개의 회사 정보를 수집했습니다.`
+      )
+    )
+
+    saveJSONToCSV(companyList, 'companies.csv')
+
+    console.log(chalk.green(`\n✅ CSV 파일로 저장되었습니다.`))
   } catch (error) {
     console.error(chalk.red(`Error: ${error?.message}`))
   } finally {
-    await page.close()
-    await context.close()
-    await browser.close()
+    await page?.close()
+    await context?.close()
+    await browser?.close()
   }
 }
 
 /**
  * Logs in using the provided credentials.
  *
- * @param {playwright.Page} page - The Playwright Page object.
- * @param {Credentials} credentials - The login credentials.
+ * @param {playwright.BrowserContext} context
+ * @param {Credentials} credentials
  * @returns {Promise<void>} A Promise that resolves when the authentication is complete.
  */
-const auth = async (page, credentials) => {
+const auth = async (context, credentials) => {
+  let page = null
+
   try {
+    const page = await context.newPage()
+
     await page.goto('https://www.rocketpunch.com/login')
 
     await page.fill('#id-login-email', credentials.emailOrPhone)
@@ -115,20 +140,26 @@ const auth = async (page, credentials) => {
 
     await page.waitForNavigation()
   } catch (error) {
-    console.error(chalk.red(`Auth error: ${error?.message}`))
+    console.error(chalk.red(`로그인에 실패하였습니다: ${error?.message}`))
     throw error
+  } finally {
+    await page?.close()
   }
 }
 
 /**
  * Retrieves a list of companies from a specific page number.
  *
- * @param {playwright.Page} page - The Playwright Page object.
+ * @param {playwright.BrowserContext} context
  * @param {number} [pageNumber=1] - The page number to retrieve.
  * @returns {Promise<{ data: Array<{ name: string, link: string }>, hasNext: boolean }>} A Promise containing the company data and hasNext flag.
  */
-const getCompanyList = async (page, pageNumber = 1) => {
+const getCompanyList = async (context, pageNumber = 1) => {
+  let page = null
+
   try {
+    page = await context.newPage()
+
     await page.goto(`https://www.rocketpunch.com/companies?page=${pageNumber}`)
     await page.waitForSelector('.company-list .company.item')
 
@@ -156,26 +187,32 @@ const getCompanyList = async (page, pageNumber = 1) => {
       chalk.red(`'${page}페이지'의 정보를 가져오는 중 오류가 발생했습니다: ${error?.message}`)
     )
     throw error // Rethrow the error to be caught by the caller
+  } finally {
+    await page?.close()
   }
 }
 
 /**
  * Retrieves detailed information about a company.
  *
- * @param {playwright.Page} page - The Playwright Page object.
+ * @param {playwright.BrowserContext} context
  * @param {string} link - The link to the company's page.
  * @returns {Promise<{ name: string }>} A Promise containing the company's detailed information.
  */
-const getCompanyDetail = async (page, link) => {
+const getCompanyDetail = async (context, link) => {
+  let page = null
+
   try {
-    await page.goto(link, { waitUntil: 'domcontentloaded' })
+    page = await context.newPage()
+
+    await page.goto(link)
     await page.waitForSelector('div.company-main')
 
     const detail = await page.$eval('div.pusher', (e) => ({
       name: e.querySelector('#company-name > h1')?.textContent?.trim(),
-      description: e.querySelector('#company-description')?.textContent?.trim() ?? '',
       email: e.querySelector('#company-email')?.textContent?.trim() ?? '',
-      phone: e.querySelector('#company-phone')?.textContent?.trim() ?? ''
+      phone: e.querySelector('#company-phone')?.textContent?.trim() ?? '',
+      description: e.querySelector('#company-description')?.textContent?.trim() ?? ''
     }))
 
     return detail
@@ -184,6 +221,8 @@ const getCompanyDetail = async (page, link) => {
       chalk.red(`'${link}'의 정보를 가져오는 중 오류가 발생했습니다: ${error?.message}`)
     )
     throw error
+  } finally {
+    await page?.close()
   }
 }
 
