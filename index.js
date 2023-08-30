@@ -1,8 +1,9 @@
-var playwright = require('playwright'),
+const playwright = require('playwright'),
   chalk = require('chalk'),
   prompt = require('prompt')
 
-var { clearTerminal } = require('./helpers/cli')
+const { clearTerminal } = require('./helpers/cli')
+const { LOGO } = require('./constants')
 
 prompt.message = '' // 앞에 오는 메시지 제거
 
@@ -18,7 +19,10 @@ prompt.message = '' // 앞에 오는 메시지 제거
  * @param {Credentials} credentials - The login information.
  * @returns {Promise<void>} A Promise that resolves when the process is complete.
  */
-var bootstrap = async () => {
+const bootstrap = async () => {
+  clearTerminal()
+  console.log(chalk.white(LOGO))
+
   let browser, context, page
 
   try {
@@ -95,7 +99,7 @@ var bootstrap = async () => {
  * @param {Credentials} credentials - The login credentials.
  * @returns {Promise<void>} A Promise that resolves when the authentication is complete.
  */
-var auth = async (page, credentials) => {
+const auth = async (page, credentials) => {
   try {
     await page.goto('https://www.rocketpunch.com/login')
 
@@ -117,7 +121,7 @@ var auth = async (page, credentials) => {
  * @param {number} [pageNumber=1] - The page number to retrieve.
  * @returns {Promise<{ data: Array<{ name: string, link: string }>, hasNext: boolean }>} A Promise containing the company data and hasNext flag.
  */
-var getCompanyList = async (page, pageNumber = 1) => {
+const getCompanyList = async (page, pageNumber = 1) => {
   try {
     await page.goto(`https://www.rocketpunch.com/companies?page=${pageNumber}`)
     await page.waitForSelector('.company-list .company.item')
@@ -155,7 +159,7 @@ var getCompanyList = async (page, pageNumber = 1) => {
  * @param {string} link - The link to the company's page.
  * @returns {Promise<{ name: string }>} A Promise containing the company's detailed information.
  */
-var getCompanyDetail = async (page, link) => {
+const getCompanyDetail = async (page, link) => {
   try {
     await page.goto(link, { waitUntil: 'domcontentloaded' })
     await page.waitForSelector('div.company-main')
