@@ -67,6 +67,12 @@ const bootstrap = async () => {
 
         clearTerminal()
         console.log(chalk.green(`${currentPage} 페이지 작업 중 ...`))
+
+        if (data.length === 0) {
+          console.log(chalk.yellow(`${currentPage} 페이지에는 회사 정보가 없습니다.`))
+          break
+        }
+
         for (const searchedCompany of data) {
           try {
             const detail = await getCompanyDetail(page, searchedCompany.link)
@@ -129,7 +135,6 @@ const getCompanyList = async (page, pageNumber = 1) => {
     const companyElements = await page.$$('.company-list .company.item')
 
     if (companyElements.length === 0) {
-      console.log(chalk.yellow(`No company items found on page ${pageNumber}.`))
       return { data: [], hasNext: false }
     }
 
@@ -147,7 +152,9 @@ const getCompanyList = async (page, pageNumber = 1) => {
 
     return { data: companies, hasNext }
   } catch (error) {
-    console.error(chalk.red(`Error getting company list: ${error?.message}`))
+    console.error(
+      chalk.red(`'${page}페이지'의 정보를 가져오는 중 오류가 발생했습니다: ${error?.message}`)
+    )
     throw error // Rethrow the error to be caught by the caller
   }
 }
@@ -173,8 +180,10 @@ const getCompanyDetail = async (page, link) => {
 
     return detail
   } catch (error) {
-    console.error(chalk.red(`Error getting company detail: ${error?.message}`))
-    throw error // Rethrow the error to be caught by the caller
+    console.error(
+      chalk.red(`'${link}'의 정보를 가져오는 중 오류가 발생했습니다: ${error?.message}`)
+    )
+    throw error
   }
 }
 
