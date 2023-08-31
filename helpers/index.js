@@ -12,6 +12,13 @@ const c = (s) =>
     .replace(/\s+/g, ' ')
     .trim()
 
+/**
+ * save json to csv
+ *
+ * @param {Object[]} dataArray
+ * @param {string} filePath
+ * @returns {Promise<void>}
+ */
 const saveJSONToCSV = async (dataArray, filePath) => {
   if (!Array.isArray(dataArray) || dataArray.length === 0) {
     console.error('Input data is not a valid array.')

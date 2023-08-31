@@ -1,139 +1,89 @@
-const path = require('path'),
-  playwright = require('playwright'),
-  chalk = require('chalk'),
-  prompt = require('prompt'),
-  Promise = require('bluebird')
+const puppeteer = require('puppeteer')
+const chalk = require('chalk')
+const prompt = require('prompt')
 
 const { LOGO, HELP } = require('./constants')
 const { saveJSONToCSV } = require('./helpers')
 const { clearTerminal } = require('./helpers/cli')
-const { auth, getCompanyDetail, getCompanyList } = require('./lib/services')
+const { login, getCompanyList, collectCompanyDetails } = require('./lib/services')
 
-const MAX_CONCURRENT_REQUESTS = 5
-
-// handle browser path for pkg
-const browserOptions = process.pkg
-  ? {
-      executablePath: path.join(
-        path.dirname(process.execPath),
-        './bin/chromium-1076/chrome-mac/Chromium.app/Contents/MacOS/Chromium'
-      )
-    }
-  : {}
-
-prompt.message = '' // 앞에 오는 메시지 제거
+prompt.message = ''
 
 /**
- * @typedef {Object} Credentials
- * @property {string} emailOrPhone - The user's login ID.
- * @property {string} password - The user's login password.
- */
-
-/**
- * Launches the browser, logs in, and retrieves company details.
- *
- * @param {Credentials} credentials
- * @returns {Promise<void>}
+ * Initializes the data collection process.
  */
 const bootstrap = async () => {
   clearTerminal()
+
   console.log(chalk.green(LOGO))
   console.log(chalk.gray(HELP))
 
-  let browser, context, page
+  let browser, context
 
   const companyList = []
 
-  try {
-    browser = await playwright.chromium.launch(browserOptions)
+  browser = await puppeteer.launch({
+    headless: 'new'
+    // headless: false
+  })
+  context = await browser.createIncognitoBrowserContext()
 
-    // console.log(chalk.gray(browser.browserType().executablePath()))
+  console.log(chalk.green('\n[*] 로켓펀치 계정을 입력하세요\n'))
 
-    context = await browser.newContext({
-      locale: 'ko-KR',
-      extraHTTPHeaders: {
-        'accept-language': 'ko,en-US;q=0.9,en;q=0.8,ko-KR;q=0.7,ro;q=0.6,vi;q=0.5'
+  prompt.start()
+  const input = await prompt.get([
+    {
+      properties: {
+        emailOrPhone: { description: '휴대전화 번호 혹은 이메일' }
       }
-    })
-
-    // 로그인
-    console.log(chalk.green('\n\n [*] 로켓펀치 계정을 입력하세요\n'))
-
-    prompt.start()
-    const input = await prompt.get([
-      {
-        properties: {
-          emailOrPhone: { message: '휴대전화 번호 혹은 이메일' }
-        }
-      },
-      {
-        properties: {
-          password: { message: '비밀번호', replace: '*', hidden: true }
-        }
+    },
+    {
+      properties: {
+        password: { description: '비밀번호', replace: '*', hidden: true }
       }
-    ])
-
-    await auth(context, { ...input })
-    console.log(chalk.green('\n\n✅ 로그인에 성공하였습니다.\n'))
-
-    let currentPage = 1
-
-    while (true) {
-      try {
-        const { data, hasNext } = await getCompanyList(context, currentPage)
-        if (!hasNext || data.length === 0) break
-
-        clearTerminal()
-        console.log(
-          chalk.green(`\n${currentPage} 페이지에서 ${data.length}개의 회사 정보를 수집 중 ...`)
-        )
-
-        const detailPromises = data.map(async (searchedCompany) => {
-          const detail = await getCompanyDetail(context, searchedCompany.link)
-
-          console.log(chalk.gray(`\n⌙ 이름: ${detail.name}`))
-          console.log(chalk.gray(`  ⌙ 이메일: ${detail.email}`))
-          console.log(chalk.gray(`  ⌙ 연락처: ${detail.phone}`))
-
-          return detail
-        })
-
-        // Process detail pages in parallel with a limited concurrency
-        const companyDetails = await Promise.map(detailPromises, async (promise) => promise, {
-          concurrency: MAX_CONCURRENT_REQUESTS
-        })
-
-        companyList.push(...companyDetails)
-      } catch (error) {
-        // Handle error
-      }
-
-      currentPage++
     }
+  ])
+
+  await login(context, { ...input })
+  console.log(chalk.green('\n✅ 로그인에 성공하였습니다.'))
+
+  let currentPage = 1
+
+  while (true) {
+    const { data, hasNext } = await getCompanyList(context, currentPage)
+    if (!hasNext || data.length === 0) break
 
     clearTerminal()
-    console.log(
-      chalk.green(
-        `\n\n✅ 작업이 완료되었습니다. 총 ${currentPage}개의 페이지에서 ${companyList.length}개의 회사 정보를 수집했습니다.`
-      )
-    )
+    console.log(chalk.green(`\n${currentPage} 페이지에서 회사 정보를 수집 중 ...\n`))
 
-    await saveJSONToCSV(companyList, 'companies.csv')
+    const companyDetails = await collectCompanyDetails(context, data)
+    companyList.push(...companyDetails)
 
-    console.log(chalk.green(`\n✅ CSV 파일로 저장되었습니다.`))
-  } catch (error) {
-    console.error(chalk.red(`\n에러 메시지: ${error?.message}`))
-  } finally {
-    await page?.close()
-    await context?.close()
-    await browser?.close()
+    currentPage++
   }
+
+  clearTerminal()
+  console.log(
+    chalk.green(
+      `\n✅ 작업이 완료되었습니다. 총 ${currentPage - 1}개의 페이지에서 ${
+        companyList.length
+      }개의 회사 정보를 수집했습니다.`
+    )
+  )
+
+  await saveJSONToCSV(companyList, 'companies.csv')
+
+  console.log(chalk.green(`\n✅ CSV 파일로 저장되었습니다.`))
+
+  await context.close()
+  await browser.close()
 }
 
 bootstrap().catch((error) => {
   console.error(
     chalk.red(
-      `의도치 않게 프로그램이 종료되었습니다 (개발자에게 에러를 보내주세요.): ${error?.message}`
+      `의도치 않게 프로그램이 종료되었습니다\n (지속적인 문제 발생시 개발자에게 에러를 보내주세요.): ${error?.message}`
     )
   )
+  process.exit(1)
 })
