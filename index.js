@@ -4,14 +4,14 @@ const path = require('path'),
   prompt = require('prompt'),
   Promise = require('bluebird')
 
-const { LOGO } = require('./constants')
+const { LOGO, HELP } = require('./constants')
 const { saveJSONToCSV } = require('./helpers')
 const { clearTerminal } = require('./helpers/cli')
 const { auth, getCompanyDetail, getCompanyList } = require('./lib/services')
 
-const MAX_CONCURRENT_REQUESTS = 10
+const MAX_CONCURRENT_REQUESTS = 5
 
-// add headless for pkg build
+// handle browser path for pkg
 const browserOptions = process.pkg
   ? {
       executablePath: path.join(
@@ -37,7 +37,8 @@ prompt.message = '' // 앞에 오는 메시지 제거
  */
 const bootstrap = async () => {
   clearTerminal()
-  console.log(chalk.greenBright(LOGO))
+  console.log(chalk.green(LOGO))
+  console.log(chalk.gray(HELP))
 
   let browser, context, page
 
@@ -46,7 +47,7 @@ const bootstrap = async () => {
   try {
     browser = await playwright.chromium.launch(browserOptions)
 
-    console.log(chalk.gray(browser.browserType().executablePath()))
+    // console.log(chalk.gray(browser.browserType().executablePath()))
 
     context = await browser.newContext({
       locale: 'ko-KR',
@@ -56,8 +57,7 @@ const bootstrap = async () => {
     })
 
     // 로그인
-    // TODO: 로그인 실패 처리
-    console.log(chalk.bgGreen('\n\n로켓펀치 계정을 입력하세요 ...'))
+    console.log(chalk.green('\n\n [*] 로켓펀치 계정을 입력하세요\n'))
 
     prompt.start()
     const input = await prompt.get([
@@ -72,9 +72,8 @@ const bootstrap = async () => {
         }
       }
     ])
-    await auth(context, { ...input })
 
-    clearTerminal()
+    await auth(context, { ...input })
     console.log(chalk.green('\n\n✅ 로그인에 성공하였습니다.\n'))
 
     let currentPage = 1
@@ -86,12 +85,15 @@ const bootstrap = async () => {
 
         clearTerminal()
         console.log(
-          chalk.bgGreen(`\n${currentPage} 페이지에서 ${data.length}개의 회사 정보를 수집 중 ...\n`)
+          chalk.green(`\n${currentPage} 페이지에서 ${data.length}개의 회사 정보를 수집 중 ...`)
         )
 
         const detailPromises = data.map(async (searchedCompany) => {
           const detail = await getCompanyDetail(context, searchedCompany.link)
-          console.log(chalk.blueBright(`⌙ 이름: ${detail.name}`))
+
+          console.log(chalk.gray(`\n⌙ 이름: ${detail.name}`))
+          console.log(chalk.gray(`  ⌙ 이메일: ${detail.email}`))
+          console.log(chalk.gray(`  ⌙ 연락처: ${detail.phone}`))
 
           return detail
         })
