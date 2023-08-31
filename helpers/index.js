@@ -1,4 +1,4 @@
-const fs = require('fs')
+const fs = require('fs/promises')
 
 /**
  * Removes unnecessary spaces and newlines from a string.
@@ -28,7 +28,7 @@ const saveJSONToCSV = async (dataArray, filePath) => {
 
   const csvString = csvContent.join('\n')
 
-  fs.writeFile(filePath, csvString, 'utf8', (err) => {
+  await fs.writeFile(filePath, csvString, 'utf8', (err) => {
     if (err) {
       console.error('Error saving CSV file:', err)
     } else {
