@@ -5,6 +5,7 @@ const prompt = require('prompt')
 const { LOGO, HELP } = require('./constants')
 const { saveJSONToCSV } = require('./helpers')
 const { clearTerminal } = require('./helpers/cli')
+const { chromiumExecutablePath } = require('./helpers/pkg')
 const { login, getCompanyList, collectCompanyDetails } = require('./lib/services')
 
 prompt.message = ''
@@ -23,8 +24,8 @@ const bootstrap = async () => {
   const companyList = []
 
   browser = await puppeteer.launch({
-    headless: 'new'
-    // headless: false
+    executablePath: chromiumExecutablePath,
+    headless: true
   })
   context = await browser.createIncognitoBrowserContext()
 
@@ -54,7 +55,7 @@ const bootstrap = async () => {
     if (!hasNext || data.length === 0) break
 
     clearTerminal()
-    console.log(chalk.green(`\n${currentPage} 페이지에서 회사 정보를 수집 중 ...\n`))
+    console.log(chalk.green(`\n${currentPage} 페이지에서 회사 정보를 수집 중 ...`))
 
     const companyDetails = await collectCompanyDetails(context, data)
     companyList.push(...companyDetails)
